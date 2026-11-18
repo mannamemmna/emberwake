@@ -8,6 +8,8 @@
  *   husk    — slow, tough, straight down
  *   spore   — drops to a hold line, hovers, fires a 3-way volley
  *   sentry  — circles the arena, periodic aimed single shot
+ *   cinder  — a ragged shell that bursts into two aimed shards on death
+ *   shard   — the cinder's children: fast, aimed, one hit point
  *   colossus — the 90-second final boss; 3 phases
  */
 import {
@@ -33,6 +35,9 @@ export function makeEnemy(type, x, y, rng, wave, ship) {
     homeY: 0,
     orbitCx: 0, orbitCy: 0, orbitR: 0, orbitA: 0, orbitSp: 0,
     bossPhase: 0,
+    bossTele: 0,   // seconds until the boss's next volley (its telegraph)
+    bossCharge: 0, // 0..1 wind-up glow before a volley
+    flash: 0,      // hit-flash (white) when damaged, decays in draw
     dead: false,
   };
   const speedScale = 1 + wave * 0.03; // gentle per-wave speed ramp
@@ -66,6 +71,19 @@ export function makeEnemy(type, x, y, rng, wave, ship) {
       e.orbitSp = rng.range(0.5, 0.9) * (rng.next() < 0.5 ? -1 : 1);
       break;
     }
+    case 'cinder': {
+      // rock dies twice: a slow shell that bursts into two aimed shards
+      const toShip = Math.atan2(ship.y - y, ship.x - x);
+      e.burstA = toShip;
+      e.vy = base.speed * speedScale;
+      break;
+    }
+    case 'shard': {
+      const toShip = Math.atan2(ship.y - y, ship.x - x);
+      e.vx = Math.cos(toShip) * base.speed;
+      e.vy = Math.sin(toShip) * base.speed;
+      break;
+    }
     case 'colossus':
       e.hp = 42; e.maxHp = 42;
       e.x = VIEW_W / 2;
@@ -75,6 +93,8 @@ export function makeEnemy(type, x, y, rng, wave, ship) {
       e.orbitR = 240;
       e.orbitA = Math.PI / 2;
       e.orbitSp = 0.35;
+      e.bossTele = 1.9; // grace beat before the very first volley
+      e.bossPhase = 0;
       break;
   }
   return e;
@@ -99,6 +119,7 @@ export function enemyShoot(game, e, angle) {
 /** Update one enemy; returns 'died' when it leaves the board. */
 export function updateEnemy(game, e, dt, rng) {
   e.t += dt;
+  e.flash = Math.max(0, e.flash - dt * 5); // hit-flash fades in ~0.2s
   const wave = game.wave;
 
   switch (e.type) {
@@ -139,6 +160,18 @@ export function updateEnemy(game, e, dt, rng) {
       }
       break;
     }
+    case 'cinder': {
+      e.y += e.vy * dt;
+      e.x += Math.sin(e.t * 0.9 + e.phase) * 12 * dt;
+      // track the ship slowly, so the burst angles stay honest
+      e.burstA = Math.atan2(game.ship.y - e.y, game.ship.x - e.x);
+      break;
+    }
+    case 'shard':
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+      e.vx += (Math.sin(e.t * 3 + e.phase)) * 30 * dt;
+      break;
     case 'colossus': {
       runColossus(game, e, dt, rng);
       break;
@@ -152,34 +185,49 @@ export function updateEnemy(game, e, dt, rng) {
   }
 }
 
-/** The boss: slow orbit at the top, three escalating phases. */
+/**
+ * The boss: slow orbit at the top, three escalating phases. Every volley is
+ * telegraphed: a wind-up window fills e.bossCharge from 0 to 1, and the core
+ * visibly brightens and swells before the shots fly — so a fair player always
+ * gets a beat to move between volleys.
+ */
 function runColossus(game, e, dt, rng) {
   e.orbitA += e.orbitSp * dt;
   e.x = e.orbitCx + Math.cos(e.orbitA) * e.orbitR;
   e.y = e.orbitCy + Math.sin(e.orbitA * 0.7) * 90 + 30;
   const frac = e.hp / e.maxHp;
   const phase = frac > 0.66 ? 0 : frac > 0.33 ? 1 : 2;
-  e.bossPhase = phase;
-  e.fireCd -= dt;
-  if (e.fireCd <= 0) {
-    if (phase === 0) {
-      // radial ring of 8
-      e.fireCd = 1.5;
-      for (let i = 0; i < 8; i++) enemyShoot(game, e, (i / 8) * Math.PI * 2 + e.orbitA);
-    } else if (phase === 1) {
+  if (phase !== e.bossPhase) {
+    // a fresh phase announces itself: a marker ring, then a fair breather
+    e.bossPhase = phase;
+    e.bossTele = 1.6 - phase * 0.25; // shrink the gap each phase, but never below a beat
+    game.juice.ring(e.x, e.y, e.bossPhase === 2 ? '#ff5470' : e.color, e.r * 3.4, 0.55);
+  }
+  const spinRad = e.bossPhase === 2 ? 3.5 : e.bossPhase === 1 ? 3.0 : 2.2;
+  const gap = e.bossPhase === 2 ? 1.0 : e.bossPhase === 1 ? 1.45 : 1.9;
+  const windup = 0.55 + spinRad / 10;
+
+  if (e.bossTele <= 0.05) {
+    // fire window
+    const base = Math.atan2(game.ship.y - e.y, game.ship.x - e.x);
+    if (e.bossPhase === 0) {
+      // radial ring of 10, offset by orbit angle so it never nests
+      for (let i = 0; i < 10; i++) enemyShoot(game, e, (i / 10) * Math.PI * 2 + e.orbitA);
+    } else if (e.bossPhase === 1) {
       // aimed fan of 3
-      e.fireCd = 1.05;
-      const base = Math.atan2(game.ship.y - e.y, game.ship.x - e.x);
       for (const off of [-0.35, 0, 0.35]) enemyShoot(game, e, base + off);
     } else {
       // fast double aimed + a slow spiral
-      e.fireCd = 0.62;
-      const base = Math.atan2(game.ship.y - e.y, game.ship.x - e.x);
       enemyShoot(game, e, base + 0.12);
       enemyShoot(game, e, base - 0.12);
       enemyShoot(game, e, e.orbitA * 4 + rng.range(0, 0.5));
     }
     game.juice.burst(e.x, e.y - e.r, 5, e.color, 90, 0.4, 2.2);
+    e.bossTele = windup + gap;
+    e.bossCharge = 0;
+  } else {
+    e.bossTele -= dt;
+    e.bossCharge = Math.max(0, Math.min(1, 1 - e.bossTele / (windup + gap)));
   }
 }
 
@@ -292,15 +340,67 @@ export function drawEnemies(ctx, enemies) {
         ctx.beginPath(); ctx.arc(0, 0, e.r * 0.22, 0, Math.PI * 2); ctx.fill();
         break;
       }
+      case 'cinder': {
+        // a cracked magma shell; flashes white for a beat after it takes a hit
+        const glow = e.flash > 0 ? '#ffffff' : e.color;
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        const n = 9;
+        for (let i = 0; i < n; i++) {
+          const a = (i / n) * Math.PI * 2 + e.phase;
+          const rr = e.r * (0.7 + 0.42 * Math.abs(Math.sin(e.phase * 5 + i * 2.1)));
+          if (i === 0) ctx.moveTo(Math.cos(a) * rr, Math.sin(a) * rr);
+          else ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
+        }
+        ctx.closePath();
+        ctx.fill();
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = 'rgba(255,220,240,0.8)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        for (let i = 0; i < 3; i++) {
+          const a = e.phase + i * 2.09 + e.t * 0.4;
+          ctx.moveTo(0, 0);
+          ctx.lineTo(Math.cos(a) * e.r * 0.85, Math.sin(a) * e.r * 0.85);
+        }
+        ctx.stroke();
+        ctx.restore();
+        ctx.fillStyle = '#fff0f8';
+        ctx.beginPath(); ctx.arc(0, 0, e.r * 0.26, 0, Math.PI * 2); ctx.fill();
+        break;
+      }
+      case 'shard': {
+        ctx.rotate(Math.atan2(e.vy, e.vx) + Math.PI / 2);
+        ctx.globalCompositeOperation = 'lighter';
+        const sg = ctx.createRadialGradient(0, 0, 0.5, 0, 0, e.r * 1.8);
+        sg.addColorStop(0, '#ffffff');
+        sg.addColorStop(0.4, e.color);
+        sg.addColorStop(1, 'rgba(255,79,160,0)');
+        ctx.fillStyle = sg;
+        ctx.beginPath(); ctx.arc(0, 0, e.r * 1.8, 0, Math.PI * 2); ctx.fill();
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#ffd6e8';
+        ctx.beginPath();
+        ctx.moveTo(0, -e.r * 1.3);
+        ctx.lineTo(e.r * 0.55, e.r * 0.7);
+        ctx.lineTo(-e.r * 0.55, e.r * 0.7);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
       case 'colossus': {
         // big layered core: ring + plates + heart
         const pulse = 1 + 0.06 * Math.sin(e.t * 3);
         ctx.globalCompositeOperation = 'lighter';
         const halo = ctx.createRadialGradient(0, 0, e.r * 0.4, 0, 0, e.r * 2.2);
-        halo.addColorStop(0, 'rgba(255,210,62,0.30)');
+        // the wind-up telegraph: the halo swells and whitens as the
+        // charge fills, so the player can read the volley coming
+        const chg = e.bossCharge ?? 0;
+        halo.addColorStop(0, `rgba(255,${Math.round(210 + 45 * chg)},${Math.round(62 + 170 * chg)},${0.30 + 0.35 * chg})`);
         halo.addColorStop(1, 'rgba(255,210,62,0)');
         ctx.fillStyle = halo;
-        ctx.beginPath(); ctx.arc(0, 0, e.r * 2.2, 0, Math.PI * 2); ctx.fill();
+        ctx.beginPath(); ctx.arc(0, 0, e.r * (2.2 + chg * 0.5), 0, Math.PI * 2); ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
         // rotating plates
         for (let i = 0; i < 6; i++) {
@@ -317,10 +417,23 @@ export function drawEnemies(ctx, enemies) {
         break;
       }
     }
+
+    // generic hit-flash: any enemy that took a bullet flashes white over
+    // its own art (the cinder also swaps its fill above; that's fine).
+    if (e.flash > 0) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = Math.min(1, e.flash) * (e.type === 'colossus' ? 0.45 : 0.85);
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(0, 0, e.r * 1.06, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
     ctx.restore();
 
     // hp pips for tough ones
-    if (e.maxHp >= 3 && e.type !== 'colossus' && e.hp < e.maxHp) {
+    if (e.maxHp >= 3 && e.type !== 'colossus' && e.type !== 'shard' && e.hp < e.maxHp) {
       const w = e.r * 1.6;
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
       ctx.fillRect(e.x - w / 2, e.y - e.r - 8, w, 3);
@@ -380,16 +493,20 @@ export function drawBossBar(ctx, boss) {
 /** Draw all enemy bullets: a hot core with a motion trail behind it. */
 export function drawEBullets(ctx, bullets) {
   ctx.save();
+  // readability: every hostile bullet carries a hot danger rim, so
+  // projectiles read as threats at a glance no matter the shooter's hue
+  const danger = '#ff3355';
+  ctx.lineCap = 'round';
   ctx.globalCompositeOperation = 'lighter';
   for (const b of bullets) {
     // trail: a short tapered streak opposite the velocity
     const tx = b.x - b.vx * 0.075;
     const ty = b.y - b.vy * 0.075;
     const trail = ctx.createLinearGradient(tx, ty, b.x, b.y);
-    trail.addColorStop(0, 'rgba(0,0,0,0)');
-    trail.addColorStop(1, b.color);
+    trail.addColorStop(0, 'rgba(255,51,85,0)');
+    trail.addColorStop(1, danger);
     ctx.strokeStyle = trail;
-    ctx.lineWidth = b.r * 0.9;
+    ctx.lineWidth = b.r * 1.5;
     ctx.lineCap = 'round';
     ctx.beginPath();
     ctx.moveTo(tx, ty);
@@ -404,6 +521,12 @@ export function drawEBullets(ctx, bullets) {
     ctx.beginPath();
     ctx.arc(b.x, b.y, b.r * 2.2, 0, Math.PI * 2);
     ctx.fill();
+    // the danger ring on top
+    ctx.strokeStyle = danger;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, b.r * 0.85, 0, Math.PI * 2);
+    ctx.stroke();
   }
   ctx.restore();
 }

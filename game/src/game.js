@@ -4,7 +4,7 @@
  * Owns the entity lists; draws the world then hands off to hud/screens.
  */
 import {
-  ARENA, VIEW_W, VIEW_H, RUN_SECONDS, START_LIVES,
+  ARENA, VIEW_W, VIEW_H, RUN_SECONDS, START_LIVES, WAVE_COUNTS, COMBO_TIERS,
   SHIP_RADIUS, SHIELD_RADIUS, INVULN_SECONDS,
   BONUS_SHIELD_HIT, BONUS_KILL_STREAK, BONUS_TIME, MAX_COMBO,
 } from './config.js';
@@ -79,13 +79,20 @@ export class Game {
   /** Wave composition: the mix opens up as the run goes on. */
   _spawnWave(wave) {
     const rng = this.rng;
-    const count = 4 + wave * 2;
+    const count = WAVE_COUNTS[wave] ?? 4 + wave * 2;
     for (let i = 0; i < count; i++) {
       const x = ARENA.x + 40 + rng.range(0, ARENA.w - 80);
       const y = ARENA.y - 40 - rng.range(0, 140 + wave * 14);
       const type = rng.weighted(
-        ['wisp', 'dart', 'husk', 'spore', 'sentry'],
-        [4, 2 + wave * 0.4, wave >= 2 ? 1.6 : 0, wave >= 3 ? 1.5 : 0, wave >= 4 ? 1.3 : 0],
+        ['wisp', 'dart', 'husk', 'spore', 'sentry', 'cinder'],
+        [
+          Math.max(1.2, 4 - wave * 0.6),                  // wisps fade out late
+          1.2 + Math.min(wave, 5) * 0.55 + (wave - 3) * 0.35, // darts ramp through the midgame
+          wave >= 2 ? Math.min(1.1 + (wave - 2) * 0.35, 2.4) : 0,
+          wave >= 3 ? Math.min(1.5 + (wave - 3) * 0.25, 2.3) : 0,
+          wave >= 4 ? Math.min(1.1 + (wave - 4) * 0.3, 2.1) : 0,
+          wave >= 5 ? Math.min((wave - 4) * 0.5, 1.6) : wave === 4 ? 0.4 : 0,
+        ],
       );
       this.enemies.push(makeEnemy(type, x, y, rng, wave, this.ship));
     }
@@ -150,12 +157,15 @@ export class Game {
         if (dist2(b.x, b.y, e.x, e.y) < (e.r + 4) ** 2) {
           consumed = true;
           e.hp -= 1;
+          e.flash = 1; // white hit-flash, decays in updateEnemy
           this.juice.sparks(b.x, b.y, Math.atan2(b.vy, b.vx), 4, 190, 0.9, e.color, 0.3);
           this.juice.burst(b.x, b.y, 3, '#fff3d6', 90, 0.28, 1.8);
           if (e.hp <= 0) this._killEnemy(e);
           else {
             this.sfx.hit();
-            if (e.type === 'colossus' && Math.random() < 0.25) this.juice.kick(3, 0.12);
+            // every landed hit on the boss thumps the camera, so the
+            // fight feels weighty without waiting for the kill
+            if (e.type === 'colossus') this.juice.kick(3.2, 0.13);
           }
           break;
         }
@@ -205,13 +215,45 @@ export class Game {
     this.combo = Math.min(this.combo, MAX_COMBO);
     const boss = e.type === 'colossus';
     const streak = this.combo % 5 === 0 ? BONUS_KILL_STREAK : 0;
-    const gained = e.score + streak;
+
+    // combo tiers: sustained chains flare harder at 8 / 12 / 16
+    let tierBonus = 0;
+    let tierLabel = null;
+    for (const tier of COMBO_TIERS) {
+      if (this.combo === tier.at) {
+        tierBonus = tier.bonus;
+        tierLabel = tier.label;
+        break;
+      }
+    }
+
+    // a cinder bursts into two aimed shards on death
+    if (e.type === 'cinder') {
+      for (const off of [-0.28, 0.28]) {
+        this.enemies.push(makeEnemy('shard', e.x, e.y, this.rng, this.wave, this.ship));
+        const sh = this.enemies[this.enemies.length - 1];
+        sh.phase = Math.random() * Math.PI * 2;
+        const a = e.burstA + off;
+        sh.vx = Math.cos(a) * 275;
+        sh.vy = Math.sin(a) * 275;
+      }
+      this.juice.burst(e.x, e.y, 10, '#ff4fa0', 150, 0.4, 2);
+    }
+
+    const gained = e.score + streak + tierBonus;
     this.score += gained;
     this.scorePop = 1;
     this.juice.burst(e.x, e.y, boss ? 48 : 14, e.color, boss ? 340 : 170, boss ? 1.1 : 0.55, boss ? 4 : 2.6);
     this.juice.ring(e.x, e.y, e.color, e.r * (boss ? 5 : 3.2), 0.5);
     this.juice.floatText(e.x, e.y - e.r, `+${gained}`, e.color, boss ? 20 : 14);
     if (streak) this.juice.floatText(e.x, e.y - e.r - 18, 'STREAK +50', '#ffd23e');
+    if (tierLabel) {
+      // the tier flare: full-arena ring, flash, and a banner in the HUD's font
+      this.juice.kick(7, 0.35);
+      this.juice.flashIt(0.35, '#ffd23e');
+      this.juice.ring(e.x, e.y, '#ffd23e', 260, 0.7);
+      this.juice.floatText(VIEW_W / 2, ARENA.y + 150, tierLabel, '#ffd23e', 22);
+    }
     this.juice.kick(boss ? 14 : 2.4, boss ? 0.7 : 0.14);
     this.sfx.kill(boss);
     if (boss) this.juice.flashIt(0.5, '#ffd23e');

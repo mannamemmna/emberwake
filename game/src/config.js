@@ -63,6 +63,14 @@ export const ENEMY_TYPES = {
     r: 21, hp: 4, score: 40, color: '#b08cff',
     speed: 60, shoot: 1.6,
   },
+  cinder: {
+    r: 21, hp: 2, score: 35, color: '#ff4fa0',
+    speed: 70, shoot: 0,
+  },
+  shard: {
+    r: 8, hp: 1, score: 5, color: '#ff9dc6',
+    speed: 275, shoot: 0,
+  },
   colossus: {
     r: 50, hp: 14, score: 250, color: '#ffd23e',
     speed: 34, shoot: 1.1,
@@ -81,6 +89,19 @@ export const MAX_COMBO = 16;
 export const BONUS_SHIELD_HIT = 5;   // shield soaks a hit
 export const BONUS_KILL_STREAK = 50; // every 5 kills in a row
 export const BONUS_TIME = 100;       // survive the clock
+
+/**
+ * Combo milestone tiers: on top of the every-5 streak bonus, sustained
+ * kill chains pay out escalating flares at 8 / 12 / 16.
+ */
+export const COMBO_TIERS = [
+  { at: 16, label: 'SUPERNOVA +500', bonus: 500 },
+  { at: 12, label: 'INFERNO +300', bonus: 300 },
+  { at: 8, label: 'RAGING +150', bonus: 150 },
+];
+
+/** Enemies per wave, hand-tuned: gentle open, tense middle, brutal close. */
+export const WAVE_COUNTS = [0, 5, 7, 9, 11, 12, 14, 16, 17];
 
 /** Lives per run. */
 export const START_LIVES = 3;

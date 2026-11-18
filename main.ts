@@ -180,6 +180,32 @@ function assertEntryIsHandable(): void {
 }
 
 // ---------------------------------------------------------------------------
+// A genuine functional check: the entry page must actually load. It is
+// dependency-free exactly as long as every module/stylesheet it references
+// exists in the staged tree — a missing src= is a broken hand-in that no
+// size cap would ever catch.
+// ---------------------------------------------------------------------------
+
+function assertEntryPageLoads(): void {
+  const html = readFileSync(join(gameDir, 'index.html'), 'utf8');
+  const refs = [...html.matchAll(/(?:src|href)="([^"]+)"/g)]
+    .map((m) => m[1])
+    .filter((ref) => !/^(https?:|data:|#)/.test(ref));
+  for (const ref of refs) {
+    const target = join(gameDir, ref);
+    if (!existsSync(target)) {
+      throw new Error(
+        `game/index.html references "${ref}", but game/${ref} is missing: ` +
+          'the entry page would not load',
+      );
+    }
+  }
+  if (refs.length === 0) {
+    throw new Error('game/index.html references nothing: no module entry?');
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Staging: copy game/ and screenshots/ into the hand-in directory.
 // ---------------------------------------------------------------------------
 
@@ -195,11 +221,15 @@ function stageEntry(): void {
 // ---------------------------------------------------------------------------
 
 function printSummary(): void {
+  // per-file sha256 of the game tree: two runs of this script must print
+  // identical lines here too, not just identical dossier.json bytes
+  const gameManifest: string[] = [];
   let gameFileCount = 0;
   let gameTotal = 0;
-  for (const [, abs] of walkFiles(gameDir)) {
+  for (const [rel, abs] of walkFiles(gameDir)) {
     gameFileCount++;
     gameTotal += statSync(abs).size;
+    gameManifest.push(`  ${rel}  ${statSync(abs).size}B  sha256:${sha256OfFile(abs)}`);
   }
 
   const shotNames = readdirSync(shotsDir)
@@ -221,6 +251,8 @@ function printSummary(): void {
   console.log(`game:    ${gameFileCount} files, ${gameTotal} bytes`);
   console.log(`shots:   ${shotNames.length} files, ${shotTotal} bytes`);
   console.log(`dossier: ${dossierSize} bytes (${dossierAbs})`);
+  console.log('game manifest:');
+  for (const line of gameManifest) console.log(line);
   console.log('screenshot manifest:');
   for (const line of manifest) console.log(line);
   console.log(
@@ -234,6 +266,7 @@ function printSummary(): void {
 // ---------------------------------------------------------------------------
 
 assertEntryIsHandable();
+assertEntryPageLoads();
 stageEntry();
 const dossier = buildDossier(landingDir, {
   text_max_bytes: CAPS.textMaxBytes,
