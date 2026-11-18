@@ -7,6 +7,7 @@ import {
   ARENA, VIEW_W, VIEW_H, RUN_SECONDS, START_LIVES, WAVE_COUNTS, COMBO_TIERS,
   SHIP_RADIUS, SHIELD_RADIUS, INVULN_SECONDS,
   BONUS_SHIELD_HIT, BONUS_KILL_STREAK, BONUS_TIME, MAX_COMBO,
+  WAVE_SPAWN_WEIGHTS, SPAWN_ORDER, WAVE_BANNER_SECONDS, FINAL_WAVE,
 } from './config.js';
 import { dist2 } from './rng.js';
 import { Juice } from './juice.js';
@@ -76,32 +77,43 @@ export class Game {
     this.sfx.start();
   }
 
-  /** Wave composition: the mix opens up as the run goes on. */
+  /**
+   * Wave composition: the weights live in config.js (WAVE_SPAWN_WEIGHTS);
+   * the spawner and the staged frame both read the same table. The wave gate
+   * (lodash-like gate) is honoured first so a wave can never field an enemy
+   * kind it has not been configured to.
+   */
   _spawnWave(wave) {
     const rng = this.rng;
     const count = WAVE_COUNTS[wave] ?? 4 + wave * 2;
+    const weights = WAVE_SPAWN_WEIGHTS[wave];
     for (let i = 0; i < count; i++) {
       const x = ARENA.x + 40 + rng.range(0, ARENA.w - 80);
       const y = ARENA.y - 40 - rng.range(0, 140 + wave * 14);
-      const type = rng.weighted(
-        ['wisp', 'dart', 'husk', 'spore', 'sentry', 'cinder'],
-        [
-          Math.max(1.2, 4 - wave * 0.6),                  // wisps fade out late
-          1.2 + Math.min(wave, 5) * 0.55 + (wave - 3) * 0.35, // darts ramp through the midgame
-          wave >= 2 ? Math.min(1.1 + (wave - 2) * 0.35, 2.4) : 0,
-          wave >= 3 ? Math.min(1.5 + (wave - 3) * 0.25, 2.3) : 0,
-          wave >= 4 ? Math.min(1.1 + (wave - 4) * 0.3, 2.1) : 0,
-          wave >= 5 ? Math.min((wave - 4) * 0.5, 1.6) : wave === 4 ? 0.4 : 0,
-        ],
-      );
-      this.enemies.push(makeEnemy(type, x, y, rng, wave, this.ship));
+      let kind;
+      if (weights) {
+        // on-table wave: roll against the configured mix
+        let total = 0;
+        for (const type of SPAWN_ORDER) total += weights[type];
+        kind = rng.weighted(SPAWN_ORDER, SPAWN_ORDER.map((type) => weights[type]));
+        // future-proof: if a wave's table is all zeros, fall back to wisps
+        if (!(total > 0)) kind = 'wisp';
+      } else {
+        kind = 'wisp'; // off-table waves should never happen, but stay safe
+      }
+      this.enemies.push(makeEnemy(kind, x, y, rng, wave, this.ship));
     }
-    if (wave === 8 && this.boss === null) {
-      this.boss = makeEnemy('colossus', VIEW_W / 2, ARENA.y - 60, rng, 8, this.ship);
+    if (wave === FINAL_WAVE && this.boss === null) {
+      this.boss = makeEnemy('colossus', VIEW_W / 2, ARENA.y - 60, rng, FINAL_WAVE, this.ship);
       this.enemies.push(this.boss);
       this.juice.kick(7, 0.5);
     }
-    this.waveBanner = 2.2;
+    // banner timing: a full envelope with a fast fade-in so the label lands
+    // with the wave instead of drifting in behind it
+    this.waveBanner = WAVE_BANNER_SECONDS;
+    // wanted stars climb with the wave: from wave 3 the siren joins the alarm,
+    // and its pitch keeps dropping from there (audio.js owns the ladder)
+    this.sfx.setStars(wave - 1);
     this.sfx.wave();
   }
 

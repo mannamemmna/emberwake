@@ -2,8 +2,9 @@
  * The HUD: score + combo, lives, the 90-second clock, shield charge and the
  * wave counter. Drawn on the canvas so one render captures the full state.
  */
-import { VIEW_W, HUD_H, RUN_SECONDS, START_LIVES, SHIELD_COOLDOWN } from './config.js';
+import { VIEW_W, HUD_H, RUN_SECONDS, START_LIVES, SHIELD_COOLDOWN, WAVE_BANNER_SECONDS, FINAL_WAVE } from './config.js';
 import { clamp } from './rng.js';
+import { bannerAlpha, bannerLabel } from './stage.js';
 
 export function drawHud(ctx, game) {
   const g = game;
@@ -119,18 +120,21 @@ export function drawHud(ctx, game) {
   ctx.fillStyle = urgent ? (Math.sin(t * 10) > 0 ? '#ff5470' : '#ffd23e') : '#ffe9d2';
   ctx.fillText(`${mm}:${ss}`, rx, 54);
 
-  // ---- wave banner: a short flare across the top of the arena. Suppressed
-  // while the boss strip owns that band, so the two never collide.
+  // ---- wave banner: a short flare across the top of the arena, following the
+  // envelope defined in stage.js (fast in, hold, soft out). Suppressed while
+  // the boss strip owns that band, so the two never collide.
   const bossOnScreen = Boolean(g.boss && !g.boss.dead);
   if (g.waveBanner > 0 && !bossOnScreen) {
-    const a = Math.min(1, (2.2 - g.waveBanner) / 0.35);
-    ctx.save();
-    ctx.globalAlpha = clamp(a, 0, 1) * 0.9;
-    ctx.textAlign = 'center';
-    ctx.font = '700 15px "Courier New", monospace';
-    ctx.fillStyle = g.wave === 8 ? '#ffd23e' : '#ffb35c';
-    const label = g.wave === 8 ? 'THE COLOSSUS STIRS' : `WAVE ${g.wave}`;
-    ctx.fillText(label, VIEW_W / 2, HUD_H + 30);
-    ctx.restore();
+    // waveBanner is a countdown; age is how long it has been up
+    const alpha = bannerAlpha(WAVE_BANNER_SECONDS - g.waveBanner);
+    if (alpha > 0) {
+      ctx.save();
+      ctx.globalAlpha = alpha * 0.9;
+      ctx.textAlign = 'center';
+      ctx.font = '700 15px "Courier New", monospace';
+      ctx.fillStyle = g.wave >= FINAL_WAVE ? '#ffd23e' : '#ffb35c';
+      ctx.fillText(bannerLabel(g.wave), VIEW_W / 2, HUD_H + 30);
+      ctx.restore();
+    }
   }
 }

@@ -103,5 +103,37 @@ export const COMBO_TIERS = [
 /** Enemies per wave, hand-tuned: gentle open, tense middle, brutal close. */
 export const WAVE_COUNTS = [0, 5, 7, 9, 11, 12, 14, 16, 17];
 
+/**
+ * Spawn mix per wave: the relative weight of each enemy kind. Index 0 is the
+ * unused "wave 0" slot, so lookups line up with WAVE_COUNTS. Keeping the table
+ * here (rather than a formula inside the spawner) means the wave curve is one
+ * readable artefact: a designer can retune the run without touching logic.
+ *
+ * Read order matches SPAWN_ORDER. A zero means the kind does not appear yet.
+ */
+export const SPAWN_ORDER = ['wisp', 'dart', 'husk', 'spore', 'sentry', 'cinder'];
+
+export const WAVE_SPAWN_WEIGHTS = [
+  null, // wave 0 never spawns
+  { wisp: 3.4,  dart: 1.05, husk: 0,    spore: 0,    sentry: 0,   cinder: 0 },
+  { wisp: 2.8,  dart: 1.95, husk: 1.1,  spore: 0,    sentry: 0,   cinder: 0 },
+  { wisp: 2.2,  dart: 2.85, husk: 1.45, spore: 1.5,  sentry: 0,   cinder: 0 },
+  { wisp: 1.6,  dart: 3.75, husk: 1.8,  spore: 1.75, sentry: 1.1, cinder: 0.4 },
+  { wisp: 1.2,  dart: 4.65, husk: 2.15, spore: 2,    sentry: 1.4, cinder: 0.5 },
+  { wisp: 1.2,  dart: 5,    husk: 2.4,  spore: 2.25, sentry: 1.7, cinder: 1 },
+  { wisp: 1.2,  dart: 5.35, husk: 2.4,  spore: 2.3,  sentry: 2,   cinder: 1.5 },
+  { wisp: 1.2,  dart: 5.7,  husk: 2.4,  spore: 2.3,  sentry: 2.1, cinder: 1.6 },
+];
+
+/** The last wave; it also brings the colossus. */
+export const FINAL_WAVE = 8;
+
+/** How long the wave-start banner lives, in seconds. */
+export const WAVE_BANNER_SECONDS = 2.2;
+
+/** Nice fade-in / fade-out lengths inside that banner window. */
+export const WAVE_BANNER_IN = 0.3;
+export const WAVE_BANNER_OUT = 0.5;
+
 /** Lives per run. */
 export const START_LIVES = 3;

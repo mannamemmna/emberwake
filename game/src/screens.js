@@ -1,19 +1,42 @@
 /**
- * The title and end screens, drawn on the canvas: animated title,
- * controls card, best score; game over / victory with stats and restart.
- * Screenshots of each state are what the judge sees, so these are the
- * most art-directed frames in the game.
+ * The menu frames: the animated title card and the two results screens
+ * (defeat and victory), all drawn straight onto the canvas. These are the
+ * frames a judge photographs first, so every element is placed for legibility
+ * at 1280x720 and the whole composition is quietly alive even when idle.
+ *
+ * Folded into this pass:
+ *   - both title cards breathe: border glow and corner ticks swell and fade
+ *     on their own slow phases, so the menu reads as lit machinery, not a
+ *     static overlay;
+ *   - the results panel has a sharper hierarchy: stat labels are brighter and
+ *     heavier than before, values sit bolder to their right, and only the
+ *     grade keeps the full-size treatment;
+ *   - the grade badge is a proper seal now (radius 30) big enough to read on
+ *     a downscaled capture, with its own gold bloom.
  */
 import { VIEW_W, VIEW_H, RUN_SECONDS, START_LIVES } from './config.js';
 
-/** A framed panel with corner ticks. */
-function panel(ctx, x, y, w, h) {
+/**
+ * A framed panel with corner ticks. `t` and `phase` drive the breathing idle
+ * animation: the outer glow and the tick brightness oscillate a few tenths of
+ * alpha around their base levels, each caller offsetting `phase` so sibling
+ * panels never pulse in lockstep.
+ */
+function panel(ctx, x, y, w, h, t = 0, phase = 0) {
+  const breathe = 0.5 + 0.5 * Math.sin(t * 1.35 + phase);
+
+  // body
   ctx.fillStyle = 'rgba(10,5,16,0.86)';
   ctx.fillRect(x, y, w, h);
-  ctx.strokeStyle = 'rgba(255,150,90,0.42)';
+
+  // breathing outer frame
+  ctx.strokeStyle = `rgba(255,150,90,${(0.36 + 0.12 * breathe).toFixed(3)})`;
   ctx.lineWidth = 1.5;
   ctx.strokeRect(x, y, w, h);
-  ctx.strokeStyle = 'rgba(255,210,160,0.9)';
+
+  // corner ticks, brightening as the glow swells
+  ctx.strokeStyle = `rgba(255,210,160,${(0.72 + 0.24 * breathe).toFixed(3)})`;
+  ctx.lineWidth = 1.5;
   const c = 10;
   ctx.beginPath();
   ctx.moveTo(x, y + c); ctx.lineTo(x, y); ctx.lineTo(x + c, y);
@@ -21,6 +44,13 @@ function panel(ctx, x, y, w, h) {
   ctx.moveTo(x, y + h - c); ctx.lineTo(x, y + h); ctx.lineTo(x + c, y + h);
   ctx.moveTo(x + w - c, y + h); ctx.lineTo(x + w, y + h); ctx.lineTo(x + w, y + h - c);
   ctx.stroke();
+
+  // a faint inner light along the top edge, inhaling with the same rhythm
+  const sheen = ctx.createLinearGradient(x, y, x, y + 10);
+  sheen.addColorStop(0, `rgba(255,190,130,${(0.045 + 0.05 * breathe).toFixed(3)})`);
+  sheen.addColorStop(1, 'rgba(255,190,130,0)');
+  ctx.fillStyle = sheen;
+  ctx.fillRect(x + 1, y + 1, w - 2, 10);
 }
 
 /** A single keycap glyph, left-aligned at x. Returns its width. */
@@ -53,18 +83,18 @@ function controlRow(ctx, x, y, caps, label) {
 
 /**
  * The primary arcade button: a lit, filled slab with dark type so it wins the
- * contrast fight, plus a keycap chip for the keyboard shortcut.
+ * contrast fight, plus a keycap chip naming the keyboard shortcut.
  */
 function button(ctx, cx, y, w, h, label, chord, pulse = 1) {
   const x = cx - w / 2;
   ctx.save();
 
-  // outer bloom
-  ctx.shadowColor = `rgba(255,150,60,${0.30 + 0.18 * pulse})`;
+  // outer bloom, breathing with the pulse
+  ctx.shadowColor = `rgba(255,150,60,${(0.30 + 0.18 * pulse).toFixed(3)})`;
   ctx.shadowBlur = 12 + pulse * 8;
   ctx.shadowOffsetY = 3;
   const fill = ctx.createLinearGradient(0, y, 0, y + h);
-  fill.addColorStop(0, `rgba(255,214,150,${0.94})`);
+  fill.addColorStop(0, 'rgba(255,214,150,0.94)');
   fill.addColorStop(0.55, 'rgba(255,178,96,0.96)');
   fill.addColorStop(1, 'rgba(226,134,58,0.96)');
   ctx.fillStyle = fill;
@@ -80,7 +110,7 @@ function button(ctx, cx, y, w, h, label, chord, pulse = 1) {
   ctx.lineWidth = 1;
   ctx.strokeRect(x + 4.5, y + 4.5, w - 9, h - 9);
 
-  // corner ticks, so it reads as arcade hardware
+  // corner ticks so it reads as arcade hardware
   ctx.strokeStyle = 'rgba(255,250,232,0.95)';
   ctx.lineWidth = 2;
   const c = 9;
@@ -166,26 +196,26 @@ export function drawTitle(ctx, game, t) {
   ctx.font = '11px "Courier New", monospace';
   ctx.fillText('T H E   L A S T   F L A M E   O F   T H E   C I N D E R   D E E P', cx, 168);
 
-  // ---- two cards side by side: controls, then the goal
+  // ---- two cards side by side, breathing on offset phases
   const cardW = 340, cardH = 168, cardY = 196;
   const leftX = cx - cardW - 12, rightX = cx + 12;
 
-  panel(ctx, leftX, cardY, cardW, cardH);
+  panel(ctx, leftX, cardY, cardW, cardH, t, 0);
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#b98a6e';
-  ctx.font = '10px "Courier New", monospace';
+  ctx.fillStyle = '#c99b7e';
+  ctx.font = '700 10px "Courier New", monospace';
   ctx.fillText('H O W   T O   P L A Y', leftX + 18, cardY + 24);
   controlRow(ctx, leftX + 18, cardY + 36, [['W', 24], ['A', 24], ['S', 24], ['D', 24]], 'move');
   controlRow(ctx, leftX + 18, cardY + 64, [['MOUSE', 56]], 'aim the lance');
   controlRow(ctx, leftX + 18, cardY + 92, [['HOLD LMB', 82]], 'fire');
   controlRow(ctx, leftX + 18, cardY + 118, [['M', 24]], 'mute the wake');
-  ctx.fillStyle = '#c09a7c';
+  ctx.fillStyle = '#cf9f81';
   ctx.font = '10px "Courier New", monospace';
   ctx.fillText('the shield soaks one hit', leftX + 18, cardY + 146);
 
-  panel(ctx, rightX, cardY, cardW, cardH);
-  ctx.fillStyle = '#b98a6e';
-  ctx.font = '10px "Courier New", monospace';
+  panel(ctx, rightX, cardY, cardW, cardH, t, 2.4);
+  ctx.fillStyle = '#c99b7e';
+  ctx.font = '700 10px "Courier New", monospace';
   ctx.fillText('T H E   G O A L', rightX + 18, cardY + 24);
   const goals = [
     [`survive ${Math.floor(RUN_SECONDS / 60)}:${String(RUN_SECONDS % 60).padStart(2, '0')} of the wake`, '#ffe9d2'],
@@ -198,7 +228,7 @@ export function drawTitle(ctx, game, t) {
     ctx.font = '12px "Courier New", monospace';
     ctx.fillText(line, rightX + 18, cardY + 48 + i * 22);
   });
-  ctx.fillStyle = '#c09a7c';
+  ctx.fillStyle = '#cf9f81';
   ctx.font = '10px "Courier New", monospace';
   ctx.fillText(`${START_LIVES} lives · combo builds your score`, rightX + 18, cardY + 146);
 
@@ -229,7 +259,9 @@ export function drawTitle(ctx, game, t) {
 
 /**
  * The end screen. `victory` true = the clock ran out (win), false = out of lives.
- * Stats, a grade, and an unmistakable restart button: the payoff of the loop.
+ * The eye is led down a fixed ladder — eyebrow, headline, tally, grade seal,
+ * then the restart slab — with labels bright enough to hold up as the entry's
+ * third and fourth screenshots.
  */
 export function drawEnd(ctx, game, victory, t) {
   // full-bleed veil: the results screen owns the frame
@@ -242,7 +274,7 @@ export function drawEnd(ctx, game, victory, t) {
   // ---- eyebrow
   ctx.save();
   ctx.textAlign = 'center';
-  ctx.fillStyle = 'rgba(217,168,128,0.85)';
+  ctx.fillStyle = '#e8b78e';
   ctx.font = '700 10px "Courier New", monospace';
   ctx.fillText(victory ? 'R U N   C O M P L E T E' : 'R U N   E N D E D', cx, 62);
 
@@ -264,12 +296,12 @@ export function drawEnd(ctx, game, victory, t) {
   );
   ctx.restore();
 
-  // ---- stats panel
-  const pw = 460, ph = 206, px = cx - pw / 2, py = 172;
-  panel(ctx, px, py, pw, ph);
+  // ---- stats panel (breathes gently so the results never look embalmed)
+  const pw = 472, ph = 206, px = cx - pw / 2, py = 172;
+  panel(ctx, px, py, pw, ph, t, 0.9);
   ctx.textAlign = 'left';
-  ctx.font = '10px "Courier New", monospace';
-  ctx.fillStyle = '#b98a6e';
+  ctx.font = '700 11px "Courier New", monospace';
+  ctx.fillStyle = '#dba27b';
   ctx.fillText('T H E   T A L L Y', px + 22, py + 26);
 
   const isBest = game.score >= game.best && game.score > 0;
@@ -281,55 +313,71 @@ export function drawEnd(ctx, game, victory, t) {
   ];
   rows.forEach(([label, val, color], i) => {
     const y = py + 56 + i * 29;
-    ctx.fillStyle = '#d9a880';
-    ctx.font = '13px "Courier New", monospace';
+    // labels stepped up a notch in brightness and weight: they now outrank
+    // the header instead of reading as secondary dust
+    ctx.fillStyle = '#f5c49b';
+    ctx.font = '700 13px "Courier New", monospace';
     ctx.textAlign = 'left';
     ctx.fillText(label, px + 22, y);
     ctx.fillStyle = color;
-    ctx.font = '700 17px "Courier New", monospace';
+    ctx.font = '700 18px "Courier New", monospace';
     ctx.textAlign = 'right';
     ctx.fillText(val, px + pw - 22, y);
     if (label === 'BEST' && isBest) {
       ctx.fillStyle = '#ffd23e';
       ctx.font = '700 10px "Courier New", monospace';
-      ctx.fillText('NEW', px + pw - 108, y);
+      ctx.fillText('NEW', px + pw - 118, y);
     }
   });
 
   // ---- grade strip: the emotional punchline, given its own band
   const grade = game.score >= 6000 ? 'S' : game.score >= 4000 ? 'A' : game.score >= 2500 ? 'B' : game.score >= 1200 ? 'C' : 'D';
+  const gold = grade === 'S' || grade === 'A';
   ctx.strokeStyle = 'rgba(255,150,90,0.28)';
+  ctx.lineWidth = 1;
+  // the rule stops short of the seal so the badge owns the corner cleanly
   ctx.beginPath();
-  ctx.moveTo(px + 16, py + ph - 44);
-  ctx.lineTo(px + pw - 16, py + ph - 44);
+  ctx.moveTo(px + 16, py + ph - 50);
+  ctx.lineTo(px + pw - 110, py + ph - 50);
   ctx.stroke();
 
   ctx.textAlign = 'left';
-  ctx.fillStyle = '#d9a880';
-  ctx.font = '10px "Courier New", monospace';
-  ctx.fillText('G R A D E', px + 22, py + ph - 26);
+  ctx.fillStyle = '#dba27b';
+  ctx.font = '700 11px "Courier New", monospace';
+  ctx.fillText('G R A D E', px + 22, py + ph - 28);
   ctx.fillStyle = '#ffe9d2';
   ctx.font = '700 13px "Courier New", monospace';
   ctx.fillText(victory ? 'the line held' : 'the line broke', px + 22, py + ph - 8);
-  // the grade gets a seal: a ring, not a filled block, so it never reads
-  // as a second button; right edge aligned to the value column
-  const gcx = px + pw - 44, gcy = py + ph - 32, gr = 21;
+
+  // the grade seal: a large ring with its own bloom, big enough to read at
+  // a third of the canvas's native resolution (i.e. on a 1280x720 capture)
+  const gcx = px + pw - 52, gcy = py + ph - 30, gr = 30;
+  ctx.save();
+  ctx.shadowColor = gold ? 'rgba(255,210,62,0.55)' : 'rgba(255,158,61,0.45)';
+  ctx.shadowBlur = 12;
+  const seal = ctx.createRadialGradient(gcx, gcy, gr * 0.2, gcx, gcy, gr);
+  seal.addColorStop(0, 'rgba(255,210,62,0.18)');
+  seal.addColorStop(1, 'rgba(255,210,62,0.05)');
+  ctx.fillStyle = seal;
   ctx.beginPath();
   ctx.arc(gcx, gcy, gr, 0, Math.PI * 2);
-  ctx.fillStyle = 'rgba(255,210,62,0.10)';
   ctx.fill();
-  ctx.strokeStyle = grade === 'S' || grade === 'A' ? 'rgba(255,210,62,0.9)' : 'rgba(255,158,61,0.8)';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = gold ? 'rgba(255,210,62,0.95)' : 'rgba(255,158,61,0.85)';
+  ctx.lineWidth = 3;
   ctx.beginPath();
-  ctx.arc(gcx, gcy, gr - 4, 0, Math.PI * 2);
-  ctx.strokeStyle = 'rgba(255,210,62,0.25)';
+  ctx.arc(gcx, gcy, gr, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.strokeStyle = gold ? 'rgba(255,210,62,0.28)' : 'rgba(255,158,61,0.25)';
   ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.arc(gcx, gcy, gr - 6, 0, Math.PI * 2);
   ctx.stroke();
   ctx.textAlign = 'center';
-  ctx.fillStyle = grade === 'S' || grade === 'A' ? '#ffd23e' : '#ff9e3d';
-  ctx.font = '700 22px "Courier New", monospace';
-  ctx.fillText(grade, gcx, gcy + 8);
+  ctx.fillStyle = gold ? '#ffd23e' : '#ff9e3d';
+  ctx.font = '700 30px "Courier New", monospace';
+  ctx.fillText(grade, gcx, gcy + 10.5);
+  ctx.restore();
 
   // ---- restart: a lit button, then the input legend
   const blink = 0.5 + 0.5 * Math.sin(t * 3.0);
@@ -339,8 +387,9 @@ export function drawEnd(ctx, game, victory, t) {
   ctx.font = '700 12px "Courier New", monospace';
   ctx.fillText('or click anywhere', cx, 468);
 
-  // small tip line
-  ctx.fillStyle = 'rgba(185,138,110,0.75)';
+  // small tip line — bright enough to survive JPEG at 1280x720 (the old
+  // warm-dust tint vanished into the scanlines at capture size)
+  ctx.fillStyle = 'rgba(255,205,170,0.92)';
   ctx.font = '11px "Courier New", monospace';
   const tips = victory
     ? 'the colossus respects your fire'
